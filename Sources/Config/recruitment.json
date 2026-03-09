@@ -1,0 +1,33 @@
+{
+  "profile_name": "招聘平台-候选人筛选",
+
+  "trigger": {
+    "type": "key_simulation",
+    "key": "arrow_down",
+    "interval_ms": 1200,
+    "jitter_ms": 300
+  },
+
+  "capture": {
+    "region": { "x": 820, "y": 120, "width": 600, "height": 400 },
+    "change_threshold": 0.05,
+    "save_screenshot": true
+  },
+
+  "extractor": {
+    "type": "vision_ocr",
+    "languages": ["zh-Hans", "en"]
+  },
+
+  "writer": {
+    "type": "sqlite",
+    "db_path": "~/Gazein/sessions.db",
+    "screenshot_dir": "~/Gazein/screenshots/"
+  },
+
+  "processor": {
+    "model": "claude-sonnet-4-20250514",
+    "system_prompt": "你是简历筛选助手。从以下 OCR 文字中提取候选人姓名、工作年限、技术栈，判断是否符合要求（Java 开发，3年以上经验）。以 JSON 格式返回。",
+    "output_fields": ["name", "years", "skills", "passed", "reason"]
+  }
+}
