@@ -155,6 +155,10 @@ final class MenuBarController: NSObject {
         exportOCRItem.target = self
         menu.addItem(exportOCRItem)
 
+        let exportAIItem = NSMenuItem(title: "导出 AI 结果", action: #selector(exportAIResults), keyEquivalent: "")
+        exportAIItem.target = self
+        menu.addItem(exportAIItem)
+
         menu.addItem(NSMenuItem.separator())
 
         let openDataItem = NSMenuItem(title: "打开数据文件夹", action: #selector(openDataFolder), keyEquivalent: "")
@@ -885,6 +889,60 @@ final class MenuBarController: NSObject {
                     try csv.write(to: url, atomically: true, encoding: .utf8)
 
                     print("[Gazein] ✓ 已导出 \(captures.count) 条记录到: \(url.path)")
+                    NSWorkspace.shared.open(url)
+
+                } catch {
+                    self?.showAlert(title: "导出失败", message: error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    @objc private func exportAIResults() {
+        guard let profile = currentProfile, let db = database else {
+            showAlert(title: "错误", message: "请先选择配置文件")
+            return
+        }
+
+        let savePanel = NSSavePanel()
+        savePanel.allowedContentTypes = [.commaSeparatedText]
+        savePanel.nameFieldStringValue = "\(profile.profileName)_ai_\(formatFileDateTime(Date())).csv"
+        savePanel.title = "导出 AI 处理结果"
+        savePanel.directoryURL = URL(fileURLWithPath: exportsDirectory(for: profile))
+
+        savePanel.begin { [weak self] response in
+            guard response == .OK, let url = savePanel.url else { return }
+
+            Task {
+                do {
+                    let results = try await db.fetchResultsWithCaptureTime()
+
+                    if results.isEmpty {
+                        self?.showAlert(title: "提示", message: "没有 AI 处理结果可导出\n请先进行批量处理")
+                        return
+                    }
+
+                    // CSV 表头: 采集时间, 处理时间, 姓名, 摘要, 是否通过, 原因, OCR原文
+                    var csv = "采集时间,处理时间,姓名,摘要,是否通过,原因,OCR原文\n"
+                    for result in results {
+                        let captureTimeStr = result.captureTime.map { self?.formatDateTime($0) ?? "" } ?? ""
+                        let processedTimeStr = self?.formatDateTime(result.processedAt) ?? ""
+                        let row = [
+                            captureTimeStr,
+                            processedTimeStr,
+                            self?.escapeCSV(result.name ?? "") ?? "",
+                            self?.escapeCSV(result.summary ?? "") ?? "",
+                            result.passed ? "通过" : "不通过",
+                            self?.escapeCSV(result.reason ?? "") ?? "",
+                            self?.escapeCSV(result.ocrText ?? "") ?? ""
+                        ].joined(separator: ",")
+                        csv += row + "\n"
+                    }
+
+                    try csv.write(to: url, atomically: true, encoding: .utf8)
+
+                    let passedCount = results.filter { $0.passed }.count
+                    print("[Gazein] ✓ 已导出 \(results.count) 条 AI 结果 (通过: \(passedCount)) 到: \(url.path)")
                     NSWorkspace.shared.open(url)
 
                 } catch {

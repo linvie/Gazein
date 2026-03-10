@@ -90,6 +90,25 @@ final class Database {
         }
     }
 
+    /// 获取所有 AI 处理结果
+    func fetchAllResults() async throws -> [ResultRecord] {
+        try await dbQueue.read { db in
+            try ResultRecord.fetchAll(db, sql: "SELECT * FROM results ORDER BY id")
+        }
+    }
+
+    /// 获取 AI 结果与采集时间的联合数据
+    func fetchResultsWithCaptureTime() async throws -> [ResultWithCaptureTime] {
+        try await dbQueue.read { db in
+            try ResultWithCaptureTime.fetchAll(db, sql: """
+                SELECT r.*, c.captured_at as capture_time, c.raw_ocr as ocr_text
+                FROM results r
+                LEFT JOIN captures c ON r.capture_id = c.id
+                ORDER BY r.id
+                """)
+        }
+    }
+
     /// 获取所有捕获数据
     func fetchAllCaptures() async throws -> [CaptureRecord] {
         try await dbQueue.read { db in
@@ -163,5 +182,30 @@ struct ResultRecord: FetchableRecord, Codable {
         case passed
         case reason
         case processedAt = "processed_at"
+    }
+}
+
+/// AI 结果 + 采集时间的联合记录
+struct ResultWithCaptureTime: FetchableRecord, Codable {
+    var id: Int64
+    var captureId: Int64
+    var name: String?
+    var summary: String?
+    var passed: Bool
+    var reason: String?
+    var processedAt: Date
+    var captureTime: Date?
+    var ocrText: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case captureId = "capture_id"
+        case name
+        case summary
+        case passed
+        case reason
+        case processedAt = "processed_at"
+        case captureTime = "capture_time"
+        case ocrText = "ocr_text"
     }
 }
