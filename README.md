@@ -24,7 +24,7 @@ A lightweight pipeline framework that turns any desktop app into a structured da
 
 ## Requirements
 
-- macOS 12.3+
+- macOS 14+
 - Xcode 15+ / Swift 5.9+
 - Permissions: Accessibility, Screen Recording
 

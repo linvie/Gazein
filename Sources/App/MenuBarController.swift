@@ -1,6 +1,7 @@
 import AppKit
 
 /// 菜单栏 UI 控制器
+@MainActor
 final class MenuBarController {
     private var statusItem: NSStatusItem?
     private var pipeline: Pipeline?

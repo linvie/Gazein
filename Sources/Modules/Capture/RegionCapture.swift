@@ -44,18 +44,11 @@ final class RegionCapture: Capture {
     }
 
     private func captureImage(filter: SCContentFilter, config: SCStreamConfiguration) async throws -> NSImage {
-        // 使用 SCScreenshotManager 截图 (macOS 14+)
-        // 对于 macOS 12/13，需要使用 SCStream
-        if #available(macOS 14.0, *) {
-            let cgImage = try await SCScreenshotManager.captureImage(
-                contentFilter: filter,
-                configuration: config
-            )
-            return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-        } else {
-            // Fallback for macOS 12/13
-            throw CaptureError.unsupportedOS
-        }
+        let cgImage = try await SCScreenshotManager.captureImage(
+            contentFilter: filter,
+            configuration: config
+        )
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     }
 
     private func computeHash(image: NSImage) -> String {
@@ -69,6 +62,5 @@ final class RegionCapture: Capture {
 
 enum CaptureError: Error {
     case noDisplayFound
-    case unsupportedOS
     case captureFailure
 }
