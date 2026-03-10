@@ -53,3 +53,6 @@ profiles/
 # Export files
 *.csv
 exports/
+
+# Built app bundle
+*.app/
