@@ -2,48 +2,57 @@
 
 > Gaze into any GUI. Extract the data within.
 
-一个轻量级管道框架，将任意无 API 的桌面软件转化为可被程序消费的结构化数据。
+A lightweight pipeline framework that transforms any desktop application without APIs into structured, consumable data.
 
-## 功能特点
+## Features
 
-- **配置驱动**: 不同场景 = 不同 JSON 配置文件，无需改动代码
-- **管道架构**: 模块化设计，组件可替换
-- **原生 macOS**: 使用 Swift、Vision Framework、ScreenCaptureKit 构建
-- **多 AI 支持**: 支持 DeepSeek、Kimi (Moonshot)、OpenAI 等多种 AI 服务
-- **数据隔离**: 每个配置独立数据目录，互不干扰
-- **配置向导**: 快速创建新配置的引导流程
+- **Configuration-driven**: Different scenarios = different JSON configs, no code changes needed
+- **Pipeline architecture**: Modular design with replaceable components
+- **Native macOS**: Built with Swift, Vision Framework, and ScreenCaptureKit
+- **Multi-AI support**: Supports DeepSeek, Kimi (Moonshot), OpenAI, and more
+- **Data isolation**: Each profile has its own data directory
+- **Setup wizard**: Guided flow for quick configuration creation
 
-## 架构
+## Architecture
 
 ```
 [Trigger] → [Capture] → [Extractor] → [Writer]
      ↓           ↓                        ↓
-  按键模拟    屏幕截图 → OCR           SQLite DB
+Key Simulation  Screenshot → OCR      SQLite DB
                                           ↓
                               [Processor] → [Exporter]
-                            (AI 批处理)      (CSV 导出)
+                            (AI Batch)      (CSV Export)
 ```
 
-## 系统要求
+## Requirements
 
 - macOS 14+
 - Xcode 15+ / Swift 5.9+
-- 权限: Accessibility (按键模拟), Screen Recording (屏幕截图)
+- Permissions: Accessibility (key simulation), Screen Recording (screenshots)
 
-## 安装
+## Installation
 
 ```bash
-git clone https://github.com/your-username/Gazein.git
+git clone https://github.com/linvie/Gazein.git
 cd Gazein
 swift build
 swift run
 ```
 
-## 快速开始
+### Build as App Bundle
 
-### 1. 设置 AI API Key
+```bash
+swift build -c release
+mkdir -p Gazein.app/Contents/MacOS
+cp .build/release/Gazein Gazein.app/Contents/MacOS/
+cp -r Resources/AppIcon.icns Gazein.app/Contents/Resources/
+```
 
-根据你使用的 AI 服务，设置对应的环境变量:
+## Quick Start
+
+### 1. Set up AI API Key
+
+Set the environment variable for your chosen AI service:
 
 ```bash
 # DeepSeek
@@ -56,53 +65,53 @@ export MOONSHOT_API_KEY="sk-xxx"
 export OPENAI_API_KEY="sk-xxx"
 ```
 
-建议添加到 `~/.zshrc` 或 `~/.bashrc` 中永久生效。
+Add to `~/.zshrc` or `~/.bashrc` for persistence.
 
-### 2. 启动应用
+### 2. Launch the App
 
 ```bash
 swift run
 ```
 
-菜单栏会出现 Gazein 图标。
+The Gazein icon will appear in the menu bar.
 
-### 3. 创建配置
+### 3. Create a Profile
 
-两种方式:
+Two options:
 
-**方式一: 配置向导 (推荐)**
-1. 点击菜单 → "配置向导"
-2. 拖拽选择屏幕区域
-3. 按下触发按键
-4. 自动生成配置文件
+**Option 1: Setup Wizard (Recommended)**
+1. Click menu → "Setup Wizard"
+2. Drag to select screen region
+3. Press the trigger key
+4. Profile is automatically generated
 
-**方式二: 手动创建**
-1. 在 `~/.gazein/profiles/` 目录创建 JSON 文件
-2. 参考下方配置示例
+**Option 2: Manual Creation**
+1. Create a JSON file in `~/.gazein/profiles/`
+2. Refer to the configuration examples below
 
-### 4. 开始采集
+### 4. Start Collection
 
-1. 选择配置文件
-2. 点击 "开始采集"
-3. 应用会自动截图 + OCR 并保存到数据库
-4. 点击 "停止采集" 结束
+1. Select a profile
+2. Click "Start Collection"
+3. The app will automatically capture screenshots, perform OCR, and save to database
+4. Click "Stop Collection" to end
 
-### 5. AI 批处理
+### 5. AI Batch Processing
 
-1. 点击 "AI 批处理"
-2. 选择配置和处理模式
-3. AI 会分析 OCR 结果并生成结构化数据
+1. Click "Batch Process (AI)"
+2. Select profile and processing mode
+3. AI analyzes OCR results and generates structured data
 
-### 6. 导出数据
+### 6. Export Data
 
-- "导出 OCR 数据" - 导出原始 OCR 文本
-- "导出 AI 结果" - 导出 AI 处理后的结构化数据
+- "Export OCR Results" - Export raw OCR text
+- "Export AI Results" - Export AI-processed structured data
 
-## 配置文件
+## Configuration
 
-配置文件位于 `~/.gazein/profiles/`，格式为 JSON。
+Profiles are stored in `~/.gazein/profiles/` as JSON files.
 
-### 完整配置示例
+### Full Configuration Example
 
 ```json
 {
@@ -135,48 +144,48 @@ swift run
   "processor": {
     "provider": "deepseek",
     "model": "deepseek-chat",
-    "system_prompt": "你的 AI 处理指令...",
+    "system_prompt": "Your AI processing instructions...",
     "output_fields": ["name", "summary", "passed", "reason"]
   }
 }
 ```
 
-### 配置项说明
+### Configuration Reference
 
-#### trigger (触发器)
+#### trigger
 
-| 字段 | 说明 | 示例 |
-|------|------|------|
-| type | 触发类型 | `key_simulation` |
-| key | 模拟按键 | `arrow_down`, `arrow_up`, `space`, `return` |
-| interval_ms | 间隔时间 (毫秒) | `2000` |
-| jitter_ms | 随机抖动 (毫秒) | `500` |
+| Field | Description | Example |
+|-------|-------------|---------|
+| type | Trigger type | `key_simulation` |
+| key | Simulated key | `arrow_down`, `arrow_up`, `space`, `return` |
+| interval_ms | Interval in milliseconds | `2000` |
+| jitter_ms | Random jitter in milliseconds | `500` |
 
-#### capture (截图)
+#### capture
 
-| 字段 | 说明 | 示例 |
-|------|------|------|
-| region | 截图区域坐标 | `{"x": 100, "y": 200, "width": 800, "height": 600}` |
-| change_threshold | 变化检测阈值 | `0.05` (5%) |
-| save_screenshot | 是否保存截图 | `true` |
+| Field | Description | Example |
+|-------|-------------|---------|
+| region | Screenshot region coordinates | `{"x": 100, "y": 200, "width": 800, "height": 600}` |
+| change_threshold | Change detection threshold | `0.05` (5%) |
+| save_screenshot | Whether to save screenshots | `true` |
 
-#### extractor (OCR)
+#### extractor
 
-| 字段 | 说明 | 示例 |
-|------|------|------|
-| type | 提取器类型 | `vision_ocr` |
-| languages | 识别语言 | `["zh-Hans", "en"]` |
+| Field | Description | Example |
+|-------|-------------|---------|
+| type | Extractor type | `vision_ocr` |
+| languages | Recognition languages | `["zh-Hans", "en"]` |
 
-#### processor (AI 处理)
+#### processor
 
-| 字段 | 说明 | 示例 |
-|------|------|------|
-| provider | AI 服务商 | `deepseek`, `kimi`, `moonshot`, `openai` |
-| model | 模型名称 | 见下方支持的模型列表 |
-| system_prompt | 系统提示词 | AI 处理指令 |
-| output_fields | 输出字段 | `["name", "summary", "passed"]` |
+| Field | Description | Example |
+|-------|-------------|---------|
+| provider | AI provider | `deepseek`, `kimi`, `moonshot`, `openai` |
+| model | Model name | See supported models below |
+| system_prompt | System prompt | AI processing instructions |
+| output_fields | Output fields | `["name", "summary", "passed"]` |
 
-## 支持的 AI 服务
+## Supported AI Services
 
 ### DeepSeek
 
@@ -187,9 +196,9 @@ swift run
 }
 ```
 
-环境变量: `DEEPSEEK_API_KEY`
+Environment variable: `DEEPSEEK_API_KEY`
 
-API 端点: `https://api.deepseek.com/v1/chat/completions`
+API endpoint: `https://api.deepseek.com/v1/chat/completions`
 
 ### Kimi (Moonshot)
 
@@ -200,7 +209,7 @@ API 端点: `https://api.deepseek.com/v1/chat/completions`
 }
 ```
 
-或使用最新的 k2 系列模型:
+Or use the latest k2 series:
 
 ```json
 {
@@ -209,15 +218,15 @@ API 端点: `https://api.deepseek.com/v1/chat/completions`
 }
 ```
 
-环境变量: `MOONSHOT_API_KEY`
+Environment variable: `MOONSHOT_API_KEY`
 
-API 端点: `https://api.moonshot.cn/v1/chat/completions`
+API endpoint: `https://api.moonshot.cn/v1/chat/completions`
 
-可用模型:
-- `moonshot-v1-8k` - 标准模型
-- `moonshot-v1-32k` - 长上下文
-- `moonshot-v1-128k` - 超长上下文
-- `kimi-k2.5` - 最新 k2 系列
+Available models:
+- `moonshot-v1-8k` - Standard model
+- `moonshot-v1-32k` - Long context
+- `moonshot-v1-128k` - Extra long context
+- `kimi-k2.5` - Latest k2 series
 
 ### OpenAI
 
@@ -228,34 +237,53 @@ API 端点: `https://api.moonshot.cn/v1/chat/completions`
 }
 ```
 
-环境变量: `OPENAI_API_KEY`
+Environment variable: `OPENAI_API_KEY`
 
-API 端点: `https://api.openai.com/v1/chat/completions`
+API endpoint: `https://api.openai.com/v1/chat/completions`
 
-可用模型:
-- `gpt-4o-mini` - 推荐，性价比高
-- `gpt-4o` - 更强能力
-- `gpt-4-turbo` - 旧版本
-- `gpt-3.5-turbo` - 经济实惠
+Available models:
+- `gpt-4o-mini` - Recommended, cost-effective
+- `gpt-4o` - More capable
+- `gpt-4-turbo` - Legacy
+- `gpt-3.5-turbo` - Budget-friendly
 
-## 数据目录结构
+## Data Directory Structure
 
-每个配置的数据独立存储在 `~/Gazein/{profile_name}/`:
+Each profile stores data independently in `~/Gazein/{profile_name}/`:
 
 ```
 ~/Gazein/
 ├── profile_a/
-│   ├── gazein.db         # SQLite 数据库
-│   └── screenshots/      # 截图文件
+│   ├── data.db           # SQLite database
+│   └── screenshots/      # Screenshot files
 ├── profile_b/
-│   ├── gazein.db
+│   ├── data.db
 │   └── screenshots/
 └── ...
 ```
 
-## 使用场景示例
+### Direct Database Access
 
-### 信息筛选
+```bash
+# Command line access
+sqlite3 ~/Gazein/my_profile/data.db
+
+# Common commands
+.tables                          # List all tables
+SELECT * FROM captures;          # View captured data
+SELECT * FROM results;           # View AI results
+DELETE FROM results WHERE id=5;  # Delete specific record
+DELETE FROM results;             # Clear all AI results
+```
+
+Recommended GUI tool:
+```bash
+brew install --cask db-browser-for-sqlite
+```
+
+## Use Case Examples
+
+### Information Screening
 
 ```json
 {
@@ -263,13 +291,13 @@ API 端点: `https://api.openai.com/v1/chat/completions`
   "processor": {
     "provider": "deepseek",
     "model": "deepseek-chat",
-    "system_prompt": "分析以下信息，判断是否符合条件。\n\n输出 JSON 格式:\n{\n  \"name\": \"名称\",\n  \"category\": \"分类\",\n  \"passed\": true或false,\n  \"reason\": \"判断理由\"\n}",
+    "system_prompt": "Analyze the following information and determine if it meets the criteria.\n\nOutput JSON format:\n{\n  \"name\": \"Name\",\n  \"category\": \"Category\",\n  \"passed\": true or false,\n  \"reason\": \"Judgment reason\"\n}",
     "output_fields": ["name", "category", "passed", "reason"]
   }
 }
 ```
 
-### 数据抓取
+### Data Scraping
 
 ```json
 {
@@ -277,45 +305,45 @@ API 端点: `https://api.openai.com/v1/chat/completions`
   "processor": {
     "provider": "deepseek",
     "model": "deepseek-chat",
-    "system_prompt": "从以下文本中提取结构化数据，输出 JSON 格式:\n{\n  \"title\": \"标题\",\n  \"price\": \"价格\",\n  \"description\": \"描述\"\n}",
+    "system_prompt": "Extract structured data from the following text, output JSON format:\n{\n  \"title\": \"Title\",\n  \"price\": \"Price\",\n  \"description\": \"Description\"\n}",
     "output_fields": ["title", "price", "description"]
   }
 }
 ```
 
-## 错误处理
+## Error Handling
 
-### API 限流 (429 错误)
+### API Rate Limiting (429 Error)
 
-应用内置自动重试机制:
-- 遇到 429 或 5xx 错误时自动重试
-- 重试间隔: 5s → 10s → 15s
-- 最多重试 3 次
+Built-in automatic retry mechanism:
+- Retries on 429 or 5xx errors
+- Retry intervals: 5s → 10s → 15s
+- Maximum 3 retries
 
-### 常见问题
+### FAQ
 
-**Q: 截图黑屏?**
-A: 检查 Screen Recording 权限，在系统设置 → 隐私与安全性 → 屏幕录制 中授权
+**Q: Black screenshot?**
+A: Check Screen Recording permission in System Settings → Privacy & Security → Screen Recording
 
-**Q: 按键模拟无效?**
-A: 检查 Accessibility 权限，在系统设置 → 隐私与安全性 → 辅助功能 中授权
+**Q: Key simulation not working?**
+A: Check Accessibility permission in System Settings → Privacy & Security → Accessibility
 
-**Q: AI 处理失败?**
-A: 检查环境变量是否正确设置，API Key 是否有效
+**Q: AI processing failed?**
+A: Verify environment variables are set correctly and API key is valid
 
-## 开发
+## Development
 
 ```bash
-# 构建
+# Build
 swift build
 
-# 运行
+# Run
 swift run
 
-# 测试
+# Test
 swift test
 
-# 清理
+# Clean
 swift package clean
 ```
 
