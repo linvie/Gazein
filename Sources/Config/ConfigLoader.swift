@@ -93,6 +93,7 @@ struct WriterConfig: Codable {
 }
 
 struct ProcessorConfig: Codable {
+    var provider: String?  // deepseek, kimi, openai
     let model: String
     let systemPrompt: String
     var outputFields: [String]?

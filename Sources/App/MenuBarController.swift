@@ -14,6 +14,7 @@ final class MenuBarController: NSObject {
     private var currentProfileFilename: String?
     private var isRunning = false
     private var isConfiguring = false
+    private var sessionStartTime: Date?
 
     // UI 组件引用
     private var regionOverlay: RegionSelectorOverlay?
@@ -32,7 +33,39 @@ final class MenuBarController: NSObject {
         super.init()
         setupStatusItem()
         loadProfiles()
+        checkAccessibilityPermission()
         print("[Gazein] 启动完成")
+    }
+
+    // MARK: - 数据目录管理
+
+    /// 获取配置的数据目录
+    private func dataDirectory(for profile: Profile) -> String {
+        let basePath = NSString(string: "~/Gazein").expandingTildeInPath
+        return (basePath as NSString).appendingPathComponent(profile.profileName)
+    }
+
+    /// 获取配置的数据库路径
+    private func databasePath(for profile: Profile) -> String {
+        return (dataDirectory(for: profile) as NSString).appendingPathComponent("data.db")
+    }
+
+    /// 获取配置的截图目录
+    private func screenshotsDirectory(for profile: Profile) -> String {
+        return (dataDirectory(for: profile) as NSString).appendingPathComponent("screenshots")
+    }
+
+    /// 获取配置的导出目录
+    private func exportsDirectory(for profile: Profile) -> String {
+        return (dataDirectory(for: profile) as NSString).appendingPathComponent("exports")
+    }
+
+    /// 确保配置的数据目录存在
+    private func ensureDataDirectories(for profile: Profile) {
+        let fm = FileManager.default
+        try? fm.createDirectory(atPath: dataDirectory(for: profile), withIntermediateDirectories: true)
+        try? fm.createDirectory(atPath: screenshotsDirectory(for: profile), withIntermediateDirectories: true)
+        try? fm.createDirectory(atPath: exportsDirectory(for: profile), withIntermediateDirectories: true)
     }
 
     private func setupStatusItem() {
@@ -43,6 +76,29 @@ final class MenuBarController: NSObject {
         }
 
         statusItem?.menu = buildMenu()
+    }
+
+    private func checkAccessibilityPermission() {
+        let trusted = AXIsProcessTrusted()
+        if !trusted {
+            print("[Gazein] ⚠️  未获得辅助功能权限，按键模拟将无法工作")
+            print("[Gazein] 请前往: 系统设置 → 隐私与安全 → 辅助功能 → 允许 Gazein")
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                let alert = NSAlert()
+                alert.messageText = "需要辅助功能权限"
+                alert.informativeText = "按键模拟功能需要辅助功能权限。\n\n请前往:\n系统设置 → 隐私与安全 → 辅助功能\n\n然后允许 Gazein 或终端应用。"
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "打开系统设置")
+                alert.addButton(withTitle: "稍后")
+
+                if alert.runModal() == .alertFirstButtonReturn {
+                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+                }
+            }
+        } else {
+            print("[Gazein] ✓ 辅助功能权限已获得")
+        }
     }
 
     private func buildMenu() -> NSMenu {
@@ -91,23 +147,23 @@ final class MenuBarController: NSObject {
         menu.addItem(NSMenuItem.separator())
 
         // 处理与导出
-        let batchItem = NSMenuItem(title: "批量处理", action: #selector(batchProcess), keyEquivalent: "")
+        let batchItem = NSMenuItem(title: "批量处理 (AI)...", action: #selector(showBatchProcessDialog), keyEquivalent: "")
         batchItem.target = self
         menu.addItem(batchItem)
 
-        let exportItem = NSMenuItem(title: "导出 CSV", action: #selector(exportCSV), keyEquivalent: "")
-        exportItem.target = self
-        menu.addItem(exportItem)
+        let exportOCRItem = NSMenuItem(title: "导出 OCR 结果", action: #selector(exportOCRResults), keyEquivalent: "")
+        exportOCRItem.target = self
+        menu.addItem(exportOCRItem)
 
         menu.addItem(NSMenuItem.separator())
 
-        let openFolderItem = NSMenuItem(title: "打开配置文件夹", action: #selector(openConfigFolder), keyEquivalent: "")
-        openFolderItem.target = self
-        menu.addItem(openFolderItem)
+        let openDataItem = NSMenuItem(title: "打开数据文件夹", action: #selector(openDataFolder), keyEquivalent: "")
+        openDataItem.target = self
+        menu.addItem(openDataItem)
 
-        let openScreenshotsItem = NSMenuItem(title: "打开截图文件夹", action: #selector(openScreenshotsFolder), keyEquivalent: "")
-        openScreenshotsItem.target = self
-        menu.addItem(openScreenshotsItem)
+        let openConfigItem = NSMenuItem(title: "打开配置文件夹", action: #selector(openConfigFolder), keyEquivalent: "")
+        openConfigItem.target = self
+        menu.addItem(openConfigItem)
 
         let showConfigItem = NSMenuItem(title: "查看当前配置", action: #selector(showCurrentConfig), keyEquivalent: "")
         showConfigItem.target = self
@@ -158,7 +214,6 @@ final class MenuBarController: NSObject {
             item.target = self
             item.representedObject = profile
 
-            // 标记当前选中的配置
             if profile.profileName == currentProfile?.profileName {
                 item.state = .on
             }
@@ -180,7 +235,7 @@ final class MenuBarController: NSObject {
     @objc private func profileSelected(_ sender: NSMenuItem) {
         guard let profile = sender.representedObject as? Profile else { return }
         selectProfile(profile, filename: profile.profileName + ".json")
-        updateProfilesSubmenu()  // 更新选中状态
+        updateProfilesSubmenu()
     }
 
     @objc private func reloadProfiles() {
@@ -229,8 +284,8 @@ final class MenuBarController: NSObject {
             ),
             writer: WriterConfig(
                 type: "sqlite",
-                dbPath: "~/Gazein/data.db",
-                screenshotDir: "~/Gazein/screenshots"
+                dbPath: nil,  // 使用默认路径
+                screenshotDir: nil
             ),
             processor: nil
         )
@@ -250,17 +305,21 @@ final class MenuBarController: NSObject {
         currentProfileFilename = filename
         profileMenuItem?.title = "当前配置: \(profile.profileName)"
 
+        // 确保数据目录存在
+        ensureDataDirectories(for: profile)
+
         let region = profile.capture.region
         let key = profile.trigger.key ?? "未设置"
         print("[Gazein] 已选择配置: \(profile.profileName)")
         print("  - 区域: \(region.width)x\(region.height) @ (\(region.x), \(region.y))")
         print("  - 按键: \(key), 间隔: \(profile.trigger.intervalMs)ms")
+        print("  - 数据目录: \(dataDirectory(for: profile))")
 
         startMenuItem?.isEnabled = !isRunning
 
-        let dbPath = profile.writer.dbPath ?? "~/Gazein/data.db"
+        // 初始化数据库
         do {
-            database = try Database(path: dbPath)
+            database = try Database(path: databasePath(for: profile))
         } catch {
             print("[Gazein] 数据库初始化失败: \(error)")
         }
@@ -387,26 +446,33 @@ final class MenuBarController: NSObject {
         let region = profile.capture.region
         let key = profile.trigger.key ?? "未设置"
         let interval = profile.trigger.intervalMs
-        let screenshotDir = profile.writer.screenshotDir ?? "~/Gazein/screenshots"
+
+        let trusted = AXIsProcessTrusted()
+        let permissionStatus = trusted ? "✓ 已授权" : "✗ 未授权"
+
+        // 获取数据统计
+        var captureCount = 0
+        var processedCount = 0
+        if let db = database {
+            captureCount = (try? db.captureCountSync()) ?? 0
+            processedCount = (try? db.processedCountSync()) ?? 0
+        }
 
         let message = """
         配置名称: \(profile.profileName)
 
-        截图区域:
-          位置: (\(region.x), \(region.y))
-          大小: \(region.width) x \(region.height)
+        截图区域: (\(region.x), \(region.y)) - \(region.width) x \(region.height)
+        触发按键: \(key)
+        采集间隔: \(interval) 毫秒
 
-        触发设置:
-          按键: \(key)
-          间隔: \(interval) 毫秒
+        辅助功能权限: \(permissionStatus)
 
-        截图保存:
-          \(NSString(string: screenshotDir).expandingTildeInPath)
+        数据统计:
+          已采集: \(captureCount) 条
+          已处理: \(processedCount) 条
 
-        配置文件:
-          ~/.gazein/profiles/\(profile.profileName).json
-
-        提示: AI 处理等高级设置请直接编辑配置文件
+        数据目录: ~/Gazein/\(profile.profileName)/
+        配置文件: ~/.gazein/profiles/\(profile.profileName).json
         """
 
         showAlert(title: "当前配置", message: message)
@@ -417,13 +483,23 @@ final class MenuBarController: NSObject {
     @objc private func startCollection() {
         guard let profile = currentProfile, !isRunning else { return }
 
+        sessionStartTime = Date()
+        let timeStr = formatDateTime(sessionStartTime!)
+
         print("\n[Gazein] ========== 开始采集 ==========")
+        print("[Gazein] 时间: \(timeStr)")
         print("[Gazein] 配置: \(profile.profileName)")
 
+        if !AXIsProcessTrusted() {
+            print("[Gazein] ⚠️  警告: 未获得辅助功能权限，按键模拟可能无法工作")
+        }
+
         do {
+            // 确保数据目录存在
+            ensureDataDirectories(for: profile)
+
             if database == nil {
-                let dbPath = profile.writer.dbPath ?? "~/Gazein/data.db"
-                database = try Database(path: dbPath)
+                database = try Database(path: databasePath(for: profile))
             }
 
             let trigger = KeySimulationTrigger(
@@ -434,6 +510,8 @@ final class MenuBarController: NSObject {
 
             let region = profile.capture.region
             print("[Gazein] 截图区域: \(region.width)x\(region.height) @ (\(region.x), \(region.y))")
+            print("[Gazein] 按键: \(profile.trigger.key ?? "arrow_down"), 间隔: \(profile.trigger.intervalMs)ms")
+            print("[Gazein] 提示: 请确保目标窗口处于激活状态!")
 
             let capture = RegionCapture(
                 region: region.cgRect,
@@ -447,7 +525,7 @@ final class MenuBarController: NSObject {
             let writer = SQLiteWriter(database: database!)
             let sessionManager = SessionManager()
 
-            let screenshotDir = profile.writer.screenshotDir ?? "~/Gazein/screenshots"
+            let screenshotDir = screenshotsDirectory(for: profile)
             let saveScreenshots = profile.capture.saveScreenshot ?? true
 
             pipeline = Pipeline(
@@ -474,7 +552,7 @@ final class MenuBarController: NSObject {
     }
 
     @objc private func stopCollection() {
-        guard isRunning else { return }
+        guard isRunning, let profile = currentProfile else { return }
 
         pipeline?.stop()
         pipelineTask?.cancel()
@@ -482,7 +560,52 @@ final class MenuBarController: NSObject {
 
         isRunning = false
         updateUIState()
-        print("[Gazein] ========== 采集已停止 ==========\n")
+
+        print("[Gazein] ========== 采集已停止 ==========")
+
+        // 自动导出 OCR 结果
+        if let startTime = sessionStartTime {
+            autoExportOCRResults(profile: profile, startTime: startTime)
+        }
+    }
+
+    private func autoExportOCRResults(profile: Profile, startTime: Date) {
+        guard let db = database else { return }
+
+        let exportsDir = exportsDirectory(for: profile)
+
+        let filename = "ocr_\(formatFileDateTime(startTime)).csv"
+        let filepath = (exportsDir as NSString).appendingPathComponent(filename)
+
+        Task {
+            do {
+                let captures = try await db.fetchAllCaptures()
+
+                if captures.isEmpty {
+                    print("[Gazein] 没有数据需要导出")
+                    return
+                }
+
+                var csv = "序号,时间,OCR文本,截图路径\n"
+                for capture in captures {
+                    let row = [
+                        String(capture.seq),
+                        formatDateTime(capture.capturedAt),
+                        escapeCSV(capture.rawOCR ?? ""),
+                        escapeCSV(capture.screenshot ?? "")
+                    ].joined(separator: ",")
+                    csv += row + "\n"
+                }
+
+                try csv.write(toFile: filepath, atomically: true, encoding: .utf8)
+
+                print("[Gazein] ✓ OCR 结果已导出: \(filepath)")
+                print("[Gazein] 共 \(captures.count) 条记录")
+
+            } catch {
+                print("[Gazein] 导出失败: \(error)")
+            }
+        }
     }
 
     private func updateUIState() {
@@ -501,39 +624,192 @@ final class MenuBarController: NSObject {
         }
     }
 
-    // MARK: - Processing & Export
+    // MARK: - Batch Processing Dialog
 
-    @objc private func batchProcess() {
-        guard let db = database else {
-            showAlert(title: "错误", message: "请先选择配置文件")
+    @objc private func showBatchProcessDialog() {
+        guard !profiles.isEmpty else {
+            showAlert(title: "错误", message: "没有配置文件")
             return
         }
 
-        guard let apiKey = ProcessInfo.processInfo.environment["DEEPSEEK_API_KEY"], !apiKey.isEmpty else {
+        // 创建对话框
+        let alert = NSAlert()
+        alert.messageText = "AI 批量处理"
+        alert.informativeText = "选择要处理的配置和模式:"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "开始处理")
+        alert.addButton(withTitle: "取消")
+
+        // 创建选项视图
+        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
+
+        // 配置选择
+        let profileLabel = NSTextField(labelWithString: "选择配置:")
+        profileLabel.frame = NSRect(x: 0, y: 70, width: 80, height: 20)
+        containerView.addSubview(profileLabel)
+
+        let profilePopup = NSPopUpButton(frame: NSRect(x: 85, y: 68, width: 200, height: 24))
+        for profile in profiles {
+            profilePopup.addItem(withTitle: profile.profileName)
+        }
+        if let current = currentProfile {
+            profilePopup.selectItem(withTitle: current.profileName)
+        }
+        containerView.addSubview(profilePopup)
+
+        // 处理模式选择
+        let modeLabel = NSTextField(labelWithString: "处理模式:")
+        modeLabel.frame = NSRect(x: 0, y: 40, width: 80, height: 20)
+        containerView.addSubview(modeLabel)
+
+        let modePopup = NSPopUpButton(frame: NSRect(x: 85, y: 38, width: 200, height: 24))
+        modePopup.addItem(withTitle: "仅未处理的数据")
+        modePopup.addItem(withTitle: "全部数据（重新处理）")
+        containerView.addSubview(modePopup)
+
+        // 数据统计标签
+        let statsLabel = NSTextField(labelWithString: "")
+        statsLabel.frame = NSRect(x: 0, y: 5, width: 300, height: 25)
+        statsLabel.isEditable = false
+        statsLabel.isBordered = false
+        statsLabel.backgroundColor = .clear
+        statsLabel.textColor = .secondaryLabelColor
+        containerView.addSubview(statsLabel)
+
+        // 更新统计信息
+        func updateStats() {
+            guard let selectedTitle = profilePopup.selectedItem?.title,
+                  let profile = profiles.first(where: { $0.profileName == selectedTitle }) else { return }
+
+            do {
+                let db = try Database(path: databasePath(for: profile))
+                let total = try db.captureCountSync()
+                let processed = try db.processedCountSync()
+                let unprocessed = total - processed
+
+                if modePopup.indexOfSelectedItem == 0 {
+                    statsLabel.stringValue = "将处理 \(unprocessed) 条未处理数据（共 \(total) 条）"
+                } else {
+                    statsLabel.stringValue = "将处理全部 \(total) 条数据"
+                }
+            } catch {
+                statsLabel.stringValue = "无法读取数据"
+            }
+        }
+
+        // 初始更新
+        updateStats()
+
+        // 监听选择变化
+        profilePopup.target = self
+        profilePopup.action = #selector(batchDialogSelectionChanged(_:))
+        modePopup.target = self
+        modePopup.action = #selector(batchDialogSelectionChanged(_:))
+
+        // 保存引用以便更新
+        objc_setAssociatedObject(profilePopup, "statsLabel", statsLabel, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(profilePopup, "modePopup", modePopup, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(modePopup, "statsLabel", statsLabel, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(modePopup, "profilePopup", profilePopup, .OBJC_ASSOCIATION_RETAIN)
+
+        alert.accessoryView = containerView
+
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            guard let selectedTitle = profilePopup.selectedItem?.title,
+                  let profile = profiles.first(where: { $0.profileName == selectedTitle }) else { return }
+
+            let processAll = modePopup.indexOfSelectedItem == 1
+            batchProcess(profile: profile, processAll: processAll)
+        }
+    }
+
+    @objc private func batchDialogSelectionChanged(_ sender: NSPopUpButton) {
+        let statsLabel = objc_getAssociatedObject(sender, "statsLabel") as? NSTextField
+        let profilePopup: NSPopUpButton?
+        let modePopup: NSPopUpButton?
+
+        if let pp = objc_getAssociatedObject(sender, "profilePopup") as? NSPopUpButton {
+            profilePopup = pp
+            modePopup = sender
+        } else {
+            profilePopup = sender
+            modePopup = objc_getAssociatedObject(sender, "modePopup") as? NSPopUpButton
+        }
+
+        guard let profilePopup = profilePopup,
+              let modePopup = modePopup,
+              let statsLabel = statsLabel,
+              let selectedTitle = profilePopup.selectedItem?.title,
+              let profile = profiles.first(where: { $0.profileName == selectedTitle }) else { return }
+
+        do {
+            let db = try Database(path: databasePath(for: profile))
+            let total = try db.captureCountSync()
+            let processed = try db.processedCountSync()
+            let unprocessed = total - processed
+
+            if modePopup.indexOfSelectedItem == 0 {
+                statsLabel.stringValue = "将处理 \(unprocessed) 条未处理数据（共 \(total) 条）"
+            } else {
+                statsLabel.stringValue = "将处理全部 \(total) 条数据"
+            }
+        } catch {
+            statsLabel.stringValue = "无法读取数据"
+        }
+    }
+
+    private func batchProcess(profile: Profile, processAll: Bool) {
+        let systemPrompt = profile.processor?.systemPrompt ?? "请分析以下内容并提取关键信息，以 JSON 格式返回。"
+        let providerName = profile.processor?.provider ?? "deepseek"
+        let model = profile.processor?.model
+
+        // 创建 AI 处理器
+        guard let processor = AIProcessor.fromConfig(
+            providerName: providerName,
+            model: model,
+            systemPrompt: systemPrompt
+        ) else {
+            let provider = AIProcessor.AIProvider(rawValue: providerName) ?? .deepseek
             showAlert(title: "需要 API Key", message: """
-            请设置环境变量 DEEPSEEK_API_KEY
+            批量处理需要 AI API。
 
-            在终端运行:
-            export DEEPSEEK_API_KEY="your-key"
+            请设置环境变量:
+            export \(provider.envKey)="your-key"
 
-            然后重新启动应用
+            支持的服务商:
+            - deepseek: DEEPSEEK_API_KEY
+            - kimi: MOONSHOT_API_KEY
+            - openai: OPENAI_API_KEY
+
+            然后重新启动应用。
             """)
             return
         }
 
-        let systemPrompt = currentProfile?.processor?.systemPrompt ?? "请分析以下内容并提取关键信息，以 JSON 格式返回。"
-        let model = currentProfile?.processor?.model ?? "deepseek-chat"
+        print("[Gazein] 开始 AI 批量处理")
+        print("[Gazein] 配置: \(profile.profileName)")
+        print("[Gazein] 服务商: \(providerName)")
+        print("[Gazein] 模式: \(processAll ? "全部数据" : "仅未处理")")
 
         Task {
             do {
+                let db = try Database(path: databasePath(for: profile))
+
+                // 如果是全部处理，先清空 results 表
+                if processAll {
+                    try await db.clearResults()
+                    print("[Gazein] 已清空旧的处理结果")
+                }
+
                 let captures = try await db.fetchUnprocessedCaptures()
 
                 if captures.isEmpty {
-                    showAlert(title: "提示", message: "没有未处理的数据")
+                    showAlert(title: "提示", message: "没有需要处理的数据")
                     return
                 }
 
-                print("[Gazein] 开始批量处理 \(captures.count) 条数据...")
+                print("[Gazein] 处理 \(captures.count) 条数据...")
 
                 let captureDataList = captures.map { record in
                     CaptureData(
@@ -545,7 +821,6 @@ final class MenuBarController: NSObject {
                     )
                 }
 
-                let processor = DeepSeekProcessor(model: model, systemPrompt: systemPrompt, apiKey: apiKey)
                 let results = try await processor.process(captures: captureDataList)
 
                 for (index, result) in results.enumerated() {
@@ -560,46 +835,56 @@ final class MenuBarController: NSObject {
                     try await db.writeResult(finalResult)
                 }
 
-                print("[Gazein] 批量处理完成")
-                showAlert(title: "处理完成", message: "已处理 \(results.count) 条数据")
+                print("[Gazein] ✓ AI 处理完成")
+                showAlert(title: "处理完成", message: "已处理 \(results.count) 条数据\n\n配置: \(profile.profileName)\n服务商: \(providerName)")
 
             } catch {
+                print("[Gazein] 处理失败: \(error)")
                 showAlert(title: "处理失败", message: error.localizedDescription)
             }
         }
     }
 
-    @objc private func exportCSV() {
-        guard let db = database else {
+    // MARK: - Export
+
+    @objc private func exportOCRResults() {
+        guard let profile = currentProfile, let db = database else {
             showAlert(title: "错误", message: "请先选择配置文件")
             return
         }
 
         let savePanel = NSSavePanel()
         savePanel.allowedContentTypes = [.commaSeparatedText]
-        savePanel.nameFieldStringValue = "gazein_export.csv"
-        savePanel.title = "导出 CSV"
+        savePanel.nameFieldStringValue = "\(profile.profileName)_ocr_\(formatFileDateTime(Date())).csv"
+        savePanel.title = "导出 OCR 结果"
+        savePanel.directoryURL = URL(fileURLWithPath: exportsDirectory(for: profile))
 
         savePanel.begin { [weak self] response in
             guard response == .OK, let url = savePanel.url else { return }
 
             Task {
                 do {
-                    let results = try await db.fetchPassedResults()
+                    let captures = try await db.fetchAllCaptures()
 
-                    let processResults = results.map { record in
-                        ProcessResult(
-                            captureId: Int(record.captureId),
-                            name: record.name,
-                            summary: record.summary,
-                            passed: record.passed,
-                            reason: record.reason
-                        )
+                    if captures.isEmpty {
+                        self?.showAlert(title: "提示", message: "没有数据可导出")
+                        return
                     }
 
-                    let exporter = CSVExporter()
-                    try await exporter.export(results: processResults, to: url)
+                    var csv = "序号,时间,OCR文本,截图路径\n"
+                    for capture in captures {
+                        let row = [
+                            String(capture.seq),
+                            self?.formatDateTime(capture.capturedAt) ?? "",
+                            self?.escapeCSV(capture.rawOCR ?? "") ?? "",
+                            self?.escapeCSV(capture.screenshot ?? "") ?? ""
+                        ].joined(separator: ",")
+                        csv += row + "\n"
+                    }
 
+                    try csv.write(to: url, atomically: true, encoding: .utf8)
+
+                    print("[Gazein] ✓ 已导出 \(captures.count) 条记录到: \(url.path)")
                     NSWorkspace.shared.open(url)
 
                 } catch {
@@ -609,26 +894,21 @@ final class MenuBarController: NSObject {
         }
     }
 
-    @objc private func openConfigFolder() {
-        let path = NSString(string: "~/.gazein/profiles").expandingTildeInPath
+    // MARK: - Folder Actions
 
-        let fileManager = FileManager.default
-        if !fileManager.fileExists(atPath: path) {
-            try? fileManager.createDirectory(atPath: path, withIntermediateDirectories: true)
+    @objc private func openDataFolder() {
+        guard let profile = currentProfile else {
+            showAlert(title: "提示", message: "请先选择配置")
+            return
         }
-
+        let path = dataDirectory(for: profile)
+        ensureDataDirectories(for: profile)
         NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 
-    @objc private func openScreenshotsFolder() {
-        let screenshotDir = currentProfile?.writer.screenshotDir ?? "~/Gazein/screenshots"
-        let path = NSString(string: screenshotDir).expandingTildeInPath
-
-        let fileManager = FileManager.default
-        if !fileManager.fileExists(atPath: path) {
-            try? fileManager.createDirectory(atPath: path, withIntermediateDirectories: true)
-        }
-
+    @objc private func openConfigFolder() {
+        let path = NSString(string: "~/.gazein/profiles").expandingTildeInPath
+        try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
         NSWorkspace.shared.open(URL(fileURLWithPath: path))
     }
 
@@ -643,5 +923,27 @@ final class MenuBarController: NSObject {
             alert.addButton(withTitle: "确定")
             alert.runModal()
         }
+    }
+
+    private func formatDateTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return formatter.string(from: date)
+    }
+
+    private func formatFileDateTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd_HHmmss"
+        return formatter.string(from: date)
+    }
+
+    private func escapeCSV(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+        if escaped.contains(",") || escaped.contains("\"") {
+            return "\"\(escaped.replacingOccurrences(of: "\"", with: "\"\""))\""
+        }
+        return escaped
     }
 }

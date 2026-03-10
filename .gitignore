@@ -41,3 +41,15 @@ screenshots/
 
 # Claude
 .claude/
+
+# Personal docs
+*.个人*
+*技术方案*
+*私有*
+
+# Profiles (user-specific configs)
+profiles/
+
+# Export files
+*.csv
+exports/

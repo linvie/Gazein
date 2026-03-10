@@ -89,6 +89,41 @@ final class Database {
             try ResultRecord.fetchAll(db, sql: "SELECT * FROM results WHERE passed = 1 ORDER BY id")
         }
     }
+
+    /// 获取所有捕获数据
+    func fetchAllCaptures() async throws -> [CaptureRecord] {
+        try await dbQueue.read { db in
+            try CaptureRecord.fetchAll(db, sql: "SELECT * FROM captures ORDER BY id")
+        }
+    }
+
+    /// 获取采集数量
+    func captureCount() async throws -> Int {
+        try await dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM captures") ?? 0
+        }
+    }
+
+    /// 获取采集数量（同步版本）
+    func captureCountSync() throws -> Int {
+        try dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM captures") ?? 0
+        }
+    }
+
+    /// 获取已处理数量（同步版本）
+    func processedCountSync() throws -> Int {
+        try dbQueue.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM results") ?? 0
+        }
+    }
+
+    /// 清空处理结果
+    func clearResults() async throws {
+        try await dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM results")
+        }
+    }
 }
 
 // MARK: - Database Records
