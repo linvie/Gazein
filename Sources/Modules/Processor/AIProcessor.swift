@@ -202,7 +202,7 @@ final class AIProcessor: Processor, @unchecked Sendable {
 
         // 解析响应
         guard let content = apiResponse.choices.first?.message.content else {
-            return ProcessResult(captureId: captureId, name: nil, summary: nil, passed: false, reason: "No response")
+            return ProcessResult(captureId: captureId, name: nil, summary: nil, passed: false, reason: "No response", rawJson: nil)
         }
 
         return parseResponse(content: content, captureId: captureId)
@@ -214,12 +214,28 @@ final class AIProcessor: Processor, @unchecked Sendable {
 
         if let jsonData = jsonContent.data(using: .utf8),
            let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+
+            // 尝试从 screening 嵌套结构提取 passed 和 reason
+            var passed = json["passed"] as? Bool ?? false
+            var reason = json["reason"] as? String
+
+            if let screening = json["screening"] as? [String: Any] {
+                passed = screening["passed"] as? Bool ?? passed
+                reason = screening["reason"] as? String ?? reason
+            }
+
+            // 尝试提取 summary (兼容多种格式)
+            let summary = json["summary"] as? String
+                ?? json["position"] as? String
+                ?? json["applied_position"] as? String
+
             return ProcessResult(
                 captureId: captureId,
                 name: json["name"] as? String,
-                summary: json["summary"] as? String ?? json["position"] as? String,
-                passed: json["passed"] as? Bool ?? false,
-                reason: json["reason"] as? String
+                summary: summary,
+                passed: passed,
+                reason: reason,
+                rawJson: jsonContent  // 保存完整 JSON
             )
         }
 
@@ -229,7 +245,8 @@ final class AIProcessor: Processor, @unchecked Sendable {
             name: nil,
             summary: content,
             passed: true,
-            reason: nil
+            reason: nil,
+            rawJson: content
         )
     }
 

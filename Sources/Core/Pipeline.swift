@@ -12,6 +12,7 @@ final class Pipeline: Sendable {
     private var isRunning = false
     private var sessionManager: SessionManager
     private var lastCaptureResult: CaptureResult?
+    private var lastOCRText: String?  // 用于 OCR 去重
 
     // 截图保存设置
     private let saveScreenshots: Bool
@@ -41,6 +42,8 @@ final class Pipeline: Sendable {
         isRunning = true
 
         sessionManager.startNewSession()
+        lastOCRText = nil  // 重置 OCR 去重
+        lastCaptureResult = nil  // 重置截图对比
         let sessionId = sessionManager.currentSessionId
         print("[Pipeline] 会话开始: \(sessionId.prefix(8))...")
 
@@ -74,11 +77,7 @@ final class Pipeline: Sendable {
                 let captureDuration = Date().timeIntervalSince(captureStart) * 1000
                 print("[Pipeline] 截图完成 (\(String(format: "%.0f", captureDuration))ms)")
 
-                // 4. 检测变化
-                if let last = lastCaptureResult, !capture.hasChanged(from: last) {
-                    print("[Pipeline] 内容无变化，跳过")
-                    continue
-                }
+                // 4. 保存截图结果用于后续变化检测
                 lastCaptureResult = captureResult
 
                 // 5. 保存截图
@@ -103,6 +102,13 @@ final class Pipeline: Sendable {
                 } else {
                     print("[Pipeline] OCR 结果: \(preview)\(text.count > 200 ? "..." : "")")
                 }
+
+                // 6.5 OCR 去重
+                if let lastText = lastOCRText, lastText == text {
+                    print("[Pipeline] OCR 与上一条相同，跳过")
+                    continue
+                }
+                lastOCRText = text
 
                 // 7. 写入数据库
                 let data = CaptureData(
@@ -152,4 +158,5 @@ final class Pipeline: Sendable {
             return nil
         }
     }
+
 }

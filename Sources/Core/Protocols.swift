@@ -67,6 +67,7 @@ struct ProcessResult: Sendable {
     let summary: String?
     let passed: Bool
     let reason: String?
+    let rawJson: String?  // 完整的 AI JSON 响应
 }
 
 // MARK: - Exporter Protocol

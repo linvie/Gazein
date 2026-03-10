@@ -47,7 +47,7 @@ final class ClaudeBatchProcessor: Processor, @unchecked Sendable {
 
         // 解析响应
         guard let content = response.content.first?.text else {
-            return ProcessResult(captureId: captureId, name: nil, summary: nil, passed: false, reason: "No response")
+            return ProcessResult(captureId: captureId, name: nil, summary: nil, passed: false, reason: "No response", rawJson: nil)
         }
 
         // 尝试解析 JSON 响应
@@ -58,11 +58,12 @@ final class ClaudeBatchProcessor: Processor, @unchecked Sendable {
                 name: json["name"] as? String,
                 summary: json["summary"] as? String,
                 passed: json["passed"] as? Bool ?? false,
-                reason: json["reason"] as? String
+                reason: json["reason"] as? String,
+                rawJson: content
             )
         }
 
-        return ProcessResult(captureId: captureId, name: nil, summary: content, passed: false, reason: nil)
+        return ProcessResult(captureId: captureId, name: nil, summary: content, passed: false, reason: nil, rawJson: content)
     }
 }
 

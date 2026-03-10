@@ -834,7 +834,8 @@ final class MenuBarController: NSObject {
                         name: result.name,
                         summary: result.summary,
                         passed: result.passed,
-                        reason: result.reason
+                        reason: result.reason,
+                        rawJson: result.rawJson
                     )
                     try await db.writeResult(finalResult)
                 }
@@ -922,21 +923,16 @@ final class MenuBarController: NSObject {
                         return
                     }
 
-                    // CSV 表头: 采集时间, 处理时间, 姓名, 摘要, 是否通过, 原因, OCR原文
-                    var csv = "采集时间,处理时间,姓名,摘要,是否通过,原因,OCR原文\n"
-                    for result in results {
-                        let captureTimeStr = result.captureTime.map { self?.formatDateTime($0) ?? "" } ?? ""
-                        let processedTimeStr = self?.formatDateTime(result.processedAt) ?? ""
-                        let row = [
-                            captureTimeStr,
-                            processedTimeStr,
-                            self?.escapeCSV(result.name ?? "") ?? "",
-                            self?.escapeCSV(result.summary ?? "") ?? "",
-                            result.passed ? "通过" : "不通过",
-                            self?.escapeCSV(result.reason ?? "") ?? "",
-                            self?.escapeCSV(result.ocrText ?? "") ?? ""
-                        ].joined(separator: ",")
-                        csv += row + "\n"
+                    // 根据是否有 rawJson 决定导出格式
+                    let hasRawJson = results.contains { $0.rawJson != nil && !$0.rawJson!.isEmpty }
+
+                    var csv: String
+                    if hasRawJson {
+                        // 新格式：解析 rawJson 导出详细字段
+                        csv = self?.exportRichCSV(results: results) ?? ""
+                    } else {
+                        // 旧格式：简单字段
+                        csv = self?.exportSimpleCSV(results: results) ?? ""
                     }
 
                     try csv.write(to: url, atomically: true, encoding: .utf8)
@@ -950,6 +946,102 @@ final class MenuBarController: NSObject {
                 }
             }
         }
+    }
+
+    private func exportSimpleCSV(results: [ResultWithCaptureTime]) -> String {
+        var csv = "采集时间,处理时间,姓名,摘要,是否通过,原因\n"
+        for result in results {
+            let captureTimeStr = result.captureTime.map { formatDateTime($0) } ?? ""
+            let processedTimeStr = formatDateTime(result.processedAt)
+            let row = [
+                captureTimeStr,
+                processedTimeStr,
+                escapeCSV(result.name ?? ""),
+                escapeCSV(result.summary ?? ""),
+                result.passed ? "通过" : "不通过",
+                escapeCSV(result.reason ?? "")
+            ].joined(separator: ",")
+            csv += row + "\n"
+        }
+        return csv
+    }
+
+    private func exportRichCSV(results: [ResultWithCaptureTime]) -> String {
+        // 表头：采集时间, 姓名, 年龄, 工作年限, 学历, 应聘职位, 是否通过, 原因, 工作经历摘要, 教育摘要
+        var csv = "采集时间,姓名,年龄,工作年限,学历,应聘职位,是否通过,原因,工作经历,教育背景\n"
+
+        for result in results {
+            let captureTimeStr = result.captureTime.map { formatDateTime($0) } ?? ""
+
+            // 解析 rawJson
+            var name = result.name ?? ""
+            var age = ""
+            var experienceYears = ""
+            var educationLevel = ""
+            var appliedPosition = result.summary ?? ""
+            var passed = result.passed
+            var reason = result.reason ?? ""
+            var workSummary = ""
+            var eduSummary = ""
+
+            if let rawJson = result.rawJson,
+               let jsonData = rawJson.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any] {
+
+                name = json["name"] as? String ?? name
+                if let ageNum = json["age"] as? Int {
+                    age = String(ageNum)
+                }
+                experienceYears = json["experience_years"] as? String ?? ""
+                educationLevel = json["education_level"] as? String ?? ""
+                appliedPosition = json["applied_position"] as? String ?? appliedPosition
+
+                // 从 screening 获取结果
+                if let screening = json["screening"] as? [String: Any] {
+                    passed = screening["passed"] as? Bool ?? passed
+                    reason = screening["reason"] as? String ?? reason
+                }
+
+                // 工作经历摘要
+                if let workExp = json["work_experience"] as? [[String: Any]] {
+                    let summaries = workExp.compactMap { exp -> String? in
+                        let company = exp["company"] as? String ?? ""
+                        let title = exp["title"] as? String ?? ""
+                        let valid = (exp["is_valid"] as? Bool ?? false) ? "✓" : "✗"
+                        let relevant = (exp["is_relevant"] as? Bool ?? false) ? "相关" : ""
+                        return "\(company)-\(title)[\(valid)\(relevant)]"
+                    }
+                    workSummary = summaries.joined(separator: "; ")
+                }
+
+                // 教育摘要
+                if let edu = json["education"] as? [[String: Any]] {
+                    let summaries = edu.compactMap { e -> String? in
+                        let school = e["school"] as? String ?? ""
+                        let degree = e["degree"] as? String ?? ""
+                        let valid = (e["is_valid"] as? Bool ?? false) ? "✓" : "✗"
+                        let is985211 = (e["is_985_211"] as? Bool ?? false) ? "985/211" : ""
+                        return "\(school)-\(degree)[\(valid)\(is985211)]"
+                    }
+                    eduSummary = summaries.joined(separator: "; ")
+                }
+            }
+
+            let row = [
+                captureTimeStr,
+                escapeCSV(name),
+                age,
+                experienceYears,
+                escapeCSV(educationLevel),
+                escapeCSV(appliedPosition),
+                passed ? "通过" : "不通过",
+                escapeCSV(reason),
+                escapeCSV(workSummary),
+                escapeCSV(eduSummary)
+            ].joined(separator: ",")
+            csv += row + "\n"
+        }
+        return csv
     }
 
     // MARK: - Folder Actions

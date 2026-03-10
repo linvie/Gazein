@@ -42,6 +42,13 @@ final class Database {
             }
         }
 
+        // v2: 添加 raw_json 列存储完整 AI 响应
+        migrator.registerMigration("v2") { db in
+            try db.alter(table: "results") { t in
+                t.add(column: "raw_json", .text)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -75,10 +82,10 @@ final class Database {
         try await dbQueue.write { db in
             try db.execute(
                 sql: """
-                    INSERT INTO results (capture_id, name, summary, passed, reason, processed_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO results (capture_id, name, summary, passed, reason, raw_json, processed_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                arguments: [result.captureId, result.name, result.summary, result.passed, result.reason, Date()]
+                arguments: [result.captureId, result.name, result.summary, result.passed, result.reason, result.rawJson, Date()]
             )
         }
     }
@@ -172,6 +179,7 @@ struct ResultRecord: FetchableRecord, Codable {
     var summary: String?
     var passed: Bool
     var reason: String?
+    var rawJson: String?
     var processedAt: Date
 
     enum CodingKeys: String, CodingKey {
@@ -181,6 +189,7 @@ struct ResultRecord: FetchableRecord, Codable {
         case summary
         case passed
         case reason
+        case rawJson = "raw_json"
         case processedAt = "processed_at"
     }
 }
@@ -193,6 +202,7 @@ struct ResultWithCaptureTime: FetchableRecord, Codable {
     var summary: String?
     var passed: Bool
     var reason: String?
+    var rawJson: String?
     var processedAt: Date
     var captureTime: Date?
     var ocrText: String?
@@ -204,6 +214,7 @@ struct ResultWithCaptureTime: FetchableRecord, Codable {
         case summary
         case passed
         case reason
+        case rawJson = "raw_json"
         case processedAt = "processed_at"
         case captureTime = "capture_time"
         case ocrText = "ocr_text"
