@@ -1,10 +1,10 @@
 import Foundation
 import AppKit
-import ScreenCaptureKit
+@preconcurrency import ScreenCaptureKit
 import CryptoKit
 
 /// 区域截图捕获器
-final class RegionCapture: Capture {
+final class RegionCapture: Capture, @unchecked Sendable {
     private let region: CGRect
     private let changeThreshold: Double
 
@@ -13,6 +13,7 @@ final class RegionCapture: Capture {
         self.changeThreshold = changeThreshold
     }
 
+    @MainActor
     func capture() async throws -> CaptureResult {
         // 使用 ScreenCaptureKit 截取指定区域
         let content = try await SCShareableContent.current

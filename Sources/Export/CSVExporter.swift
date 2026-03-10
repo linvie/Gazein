@@ -1,7 +1,7 @@
 import Foundation
 
 /// CSV 导出器
-final class CSVExporter: Exporter {
+final class CSVExporter: Exporter, @unchecked Sendable {
     func export(results: [ProcessResult], to path: URL) async throws {
         var csv = "ID,Name,Summary,Passed,Reason\n"
 

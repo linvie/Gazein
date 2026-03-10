@@ -1,7 +1,7 @@
 import Foundation
 
 /// Claude API 批处理器
-final class ClaudeBatchProcessor: Processor {
+final class ClaudeBatchProcessor: Processor, @unchecked Sendable {
     private let model: String
     private let systemPrompt: String
     private let apiKey: String

@@ -2,7 +2,7 @@ import Foundation
 import Carbon
 
 /// 按键模拟触发器
-final class KeySimulationTrigger: Trigger {
+final class KeySimulationTrigger: Trigger, @unchecked Sendable {
     private let keyCode: CGKeyCode
     private let baseIntervalMs: Int
     private let jitterMs: Int
@@ -17,6 +17,7 @@ final class KeySimulationTrigger: Trigger {
         self.jitterMs = jitterMs
     }
 
+    @MainActor
     func fire() async throws {
         // 创建按键按下事件
         guard let keyDown = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true) else {

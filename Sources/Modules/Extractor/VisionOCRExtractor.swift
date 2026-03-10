@@ -3,7 +3,7 @@ import AppKit
 import Vision
 
 /// Vision Framework OCR 提取器
-final class VisionOCRExtractor: Extractor {
+final class VisionOCRExtractor: Extractor, @unchecked Sendable {
     private let languages: [String]
 
     init(languages: [String] = ["zh-Hans", "en"]) {

@@ -3,8 +3,6 @@ import AppKit
 /// 全屏透明遮罩，用于框选区域
 final class RegionSelectorOverlay: NSWindow {
     private var selectionRect: NSRect = .zero
-    private var startPoint: NSPoint = .zero
-    private var isDragging = false
 
     var onRegionSelected: ((CGRect) -> Void)?
 
@@ -32,7 +30,22 @@ final class RegionSelectorOverlay: NSWindow {
             setFrame(screen.frame, display: true)
         }
         makeKeyAndOrderFront(nil)
+
+        // 激活应用以接收键盘事件
+        NSApp.activate(ignoringOtherApps: true)
     }
+
+    override func keyDown(with event: NSEvent) {
+        // ESC 键取消选择
+        if event.keyCode == 53 {
+            orderOut(nil)
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
 
     fileprivate func updateSelection(start: NSPoint, current: NSPoint) {
         let x = min(start.x, current.x)
@@ -44,6 +57,13 @@ final class RegionSelectorOverlay: NSWindow {
     }
 
     fileprivate func completeSelection() {
+        // 检查选择是否有效（至少 10x10 像素）
+        guard selectionRect.width >= 10 && selectionRect.height >= 10 else {
+            print("[Gazein] 选择区域太小，已取消")
+            orderOut(nil)
+            return
+        }
+
         // 转换为屏幕坐标（原点在左上角）
         if let screen = NSScreen.main {
             let flippedY = screen.frame.height - selectionRect.origin.y - selectionRect.height
@@ -53,9 +73,15 @@ final class RegionSelectorOverlay: NSWindow {
                 width: selectionRect.width,
                 height: selectionRect.height
             )
+
+            // 先关闭窗口
+            orderOut(nil)
+
+            // 然后回调
             onRegionSelected?(screenRect)
+        } else {
+            orderOut(nil)
         }
-        close()
     }
 }
 
@@ -66,6 +92,8 @@ private class RegionSelectorView: NSView {
     private var startPoint: NSPoint = .zero
     private var currentPoint: NSPoint = .zero
     private var isDragging = false
+
+    override var acceptsFirstResponder: Bool { true }
 
     override func mouseDown(with event: NSEvent) {
         startPoint = event.locationInWindow
@@ -110,6 +138,34 @@ private class RegionSelectorView: NSView {
             let path = NSBezierPath(rect: rect)
             path.lineWidth = 2
             path.stroke()
+
+            // 显示尺寸
+            let sizeText = "\(Int(rect.width)) x \(Int(rect.height))"
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 14, weight: .medium),
+                .foregroundColor: NSColor.white,
+                .backgroundColor: NSColor.black.withAlphaComponent(0.7)
+            ]
+            let textSize = sizeText.size(withAttributes: attributes)
+            let textRect = NSRect(
+                x: rect.midX - textSize.width / 2,
+                y: rect.midY - textSize.height / 2,
+                width: textSize.width + 8,
+                height: textSize.height + 4
+            )
+
+            // 背景
+            NSColor.black.withAlphaComponent(0.7).setFill()
+            NSBezierPath(roundedRect: textRect, xRadius: 4, yRadius: 4).fill()
+
+            // 文字
+            sizeText.draw(
+                at: NSPoint(x: textRect.origin.x + 4, y: textRect.origin.y + 2),
+                withAttributes: [
+                    .font: NSFont.systemFont(ofSize: 14, weight: .medium),
+                    .foregroundColor: NSColor.white
+                ]
+            )
         }
     }
 }

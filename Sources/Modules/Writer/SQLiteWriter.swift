@@ -2,7 +2,7 @@ import Foundation
 import GRDB
 
 /// SQLite 数据写入器
-final class SQLiteWriter: Writer {
+final class SQLiteWriter: Writer, @unchecked Sendable {
     private let database: Database
 
     init(database: Database) {
