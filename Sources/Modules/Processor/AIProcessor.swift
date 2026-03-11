@@ -87,6 +87,11 @@ final class AIProcessor: Processor, @unchecked Sendable {
         )
     }
 
+    /// 处理单条数据 (公开方法，支持边处理边写入)
+    func processSingle(capture: CaptureData, captureId: Int) async throws -> ProcessResult {
+        return try await processOne(capture: capture, captureId: captureId)
+    }
+
     func process(captures: [CaptureData]) async throws -> [ProcessResult] {
         var results: [ProcessResult] = []
         let total = captures.count

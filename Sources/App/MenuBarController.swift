@@ -813,35 +813,61 @@ final class MenuBarController: NSObject {
                     return
                 }
 
-                print("[Gazein] 处理 \(captures.count) 条数据...")
+                let total = captures.count
+                print("[Gazein] 开始处理 \(total) 条数据 (边处理边写入)...")
 
-                let captureDataList = captures.map { record in
-                    CaptureData(
+                var successCount = 0
+                var failCount = 0
+
+                for (index, record) in captures.enumerated() {
+                    let num = index + 1
+                    let captureId = Int(record.id)
+                    let preview = String((record.rawOCR ?? "").prefix(50)).replacingOccurrences(of: "\n", with: " ")
+
+                    print("[Gazein] [\(num)/\(total)] 处理中: \(preview)...")
+
+                    let captureData = CaptureData(
                         sessionId: record.sessionId,
                         seq: record.seq,
                         rawOCR: record.rawOCR ?? "",
                         screenshotPath: record.screenshot,
                         capturedAt: record.capturedAt
                     )
+
+                    do {
+                        let startTime = Date()
+                        let result = try await processor.processSingle(capture: captureData, captureId: captureId)
+                        let duration = Date().timeIntervalSince(startTime)
+
+                        // 立即写入数据库
+                        let finalResult = ProcessResult(
+                            captureId: captureId,
+                            name: result.name,
+                            summary: result.summary,
+                            passed: result.passed,
+                            reason: result.reason,
+                            rawJson: result.rawJson
+                        )
+                        try await db.writeResult(finalResult)
+
+                        let passedStr = result.passed ? "✓ 通过" : "✗ 不通过"
+                        let name = result.name ?? "未知"
+                        print("[Gazein] [\(num)/\(total)] 完成 (\(String(format: "%.1f", duration))s) - \(name): \(passedStr) → 已写入数据库")
+                        successCount += 1
+
+                        // 避免请求过快
+                        if index < total - 1 {
+                            try await Task.sleep(nanoseconds: 500_000_000)
+                        }
+                    } catch {
+                        print("[Gazein] [\(num)/\(total)] 处理失败: \(error.localizedDescription)")
+                        failCount += 1
+                        // 继续处理下一条，不中断
+                    }
                 }
 
-                let results = try await processor.process(captures: captureDataList)
-
-                for (index, result) in results.enumerated() {
-                    let captureId = Int(captures[index].id)
-                    let finalResult = ProcessResult(
-                        captureId: captureId,
-                        name: result.name,
-                        summary: result.summary,
-                        passed: result.passed,
-                        reason: result.reason,
-                        rawJson: result.rawJson
-                    )
-                    try await db.writeResult(finalResult)
-                }
-
-                print("[Gazein] ✓ AI 处理完成")
-                showAlert(title: "处理完成", message: "已处理 \(results.count) 条数据\n\n配置: \(profile.profileName)\n服务商: \(providerName)")
+                print("[Gazein] ✓ AI 处理完成: 成功 \(successCount) 条, 失败 \(failCount) 条")
+                showAlert(title: "处理完成", message: "成功: \(successCount) 条\n失败: \(failCount) 条\n\n配置: \(profile.profileName)\n服务商: \(providerName)")
 
             } catch {
                 print("[Gazein] 处理失败: \(error)")
