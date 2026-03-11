@@ -72,9 +72,11 @@ final class AIProcessor: Processor, @unchecked Sendable {
         let providerName = providerName?.lowercased() ?? "deepseek"
         let provider = AIProvider(rawValue: providerName) ?? .deepseek
 
-        // 获取 API Key
-        guard let apiKey = ProcessInfo.processInfo.environment[provider.envKey], !apiKey.isEmpty else {
-            print("[AIProcessor] 未找到环境变量: \(provider.envKey)")
+        // 获取 API Key: 优先环境变量，其次 secrets.json
+        let apiKey = getAPIKey(for: provider)
+        guard let apiKey = apiKey, !apiKey.isEmpty else {
+            print("[AIProcessor] 未找到 API Key: \(provider.envKey)")
+            print("[AIProcessor] 请设置环境变量或配置 ~/.gazein/secrets.json")
             return nil
         }
 
@@ -85,6 +87,24 @@ final class AIProcessor: Processor, @unchecked Sendable {
             apiKey: apiKey,
             customBaseURL: customBaseURL
         )
+    }
+
+    /// 获取 API Key (优先环境变量，其次 secrets.json)
+    private static func getAPIKey(for provider: AIProvider) -> String? {
+        // 1. 先尝试环境变量
+        if let envKey = ProcessInfo.processInfo.environment[provider.envKey], !envKey.isEmpty {
+            return envKey
+        }
+
+        // 2. 读取 secrets.json
+        let secretsPath = NSString(string: "~/.gazein/secrets.json").expandingTildeInPath
+        guard FileManager.default.fileExists(atPath: secretsPath),
+              let data = FileManager.default.contents(atPath: secretsPath),
+              let secrets = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return nil
+        }
+
+        return secrets[provider.envKey]
     }
 
     /// 处理单条数据 (公开方法，支持边处理边写入)

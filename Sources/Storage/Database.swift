@@ -49,6 +49,16 @@ final class Database {
             }
         }
 
+        // v3: 添加 archived 列用于数据归档
+        migrator.registerMigration("v3") { db in
+            try db.alter(table: "captures") { t in
+                t.add(column: "archived", .boolean).defaults(to: false)
+            }
+            try db.alter(table: "results") { t in
+                t.add(column: "archived", .boolean).defaults(to: false)
+            }
+        }
+
         try migrator.migrate(dbQueue)
     }
 
@@ -71,7 +81,7 @@ final class Database {
             try CaptureRecord.fetchAll(db, sql: """
                 SELECT c.* FROM captures c
                 LEFT JOIN results r ON r.capture_id = c.id
-                WHERE r.id IS NULL
+                WHERE r.id IS NULL AND c.archived = 0
                 ORDER BY c.id
                 """)
         }
@@ -111,36 +121,37 @@ final class Database {
                 SELECT r.*, c.captured_at as capture_time, c.raw_ocr as ocr_text
                 FROM results r
                 LEFT JOIN captures c ON r.capture_id = c.id
+                WHERE r.archived = 0
                 ORDER BY r.id
                 """)
         }
     }
 
-    /// 获取所有捕获数据
+    /// 获取所有捕获数据（不包含归档数据）
     func fetchAllCaptures() async throws -> [CaptureRecord] {
         try await dbQueue.read { db in
-            try CaptureRecord.fetchAll(db, sql: "SELECT * FROM captures ORDER BY id")
+            try CaptureRecord.fetchAll(db, sql: "SELECT * FROM captures WHERE archived = 0 ORDER BY id")
         }
     }
 
-    /// 获取采集数量
+    /// 获取采集数量（不包含归档数据）
     func captureCount() async throws -> Int {
         try await dbQueue.read { db in
-            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM captures") ?? 0
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM captures WHERE archived = 0") ?? 0
         }
     }
 
-    /// 获取采集数量（同步版本）
+    /// 获取采集数量（同步版本，不包含归档数据）
     func captureCountSync() throws -> Int {
         try dbQueue.read { db in
-            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM captures") ?? 0
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM captures WHERE archived = 0") ?? 0
         }
     }
 
-    /// 获取已处理数量（同步版本）
+    /// 获取已处理数量（同步版本，不包含归档数据）
     func processedCountSync() throws -> Int {
         try dbQueue.read { db in
-            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM results") ?? 0
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM results WHERE archived = 0") ?? 0
         }
     }
 
@@ -148,6 +159,38 @@ final class Database {
     func clearResults() async throws {
         try await dbQueue.write { db in
             try db.execute(sql: "DELETE FROM results")
+        }
+    }
+
+    // MARK: - Data Cleanup
+
+    /// 获取数据统计（不包含归档数据）
+    func getDataStats() throws -> (captureCount: Int, resultCount: Int) {
+        try dbQueue.read { db in
+            let captures = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM captures WHERE archived = 0") ?? 0
+            let results = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM results WHERE archived = 0") ?? 0
+            return (captures, results)
+        }
+    }
+
+    /// 归档所有未归档的数据
+    func archiveAllData() async throws -> (archivedCaptures: Int, archivedResults: Int) {
+        try await dbQueue.write { db in
+            let capturesBefore = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM captures WHERE archived = 0") ?? 0
+            let resultsBefore = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM results WHERE archived = 0") ?? 0
+
+            try db.execute(sql: "UPDATE captures SET archived = 1 WHERE archived = 0")
+            try db.execute(sql: "UPDATE results SET archived = 1 WHERE archived = 0")
+
+            return (capturesBefore, resultsBefore)
+        }
+    }
+
+    /// 清空所有数据（包括归档数据）
+    func clearAllData() async throws {
+        try await dbQueue.write { db in
+            try db.execute(sql: "DELETE FROM results")
+            try db.execute(sql: "DELETE FROM captures")
         }
     }
 }

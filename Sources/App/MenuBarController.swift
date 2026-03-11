@@ -159,7 +159,15 @@ final class MenuBarController: NSObject {
         exportAIItem.target = self
         menu.addItem(exportAIItem)
 
+        let cleanupItem = NSMenuItem(title: "清理数据...", action: #selector(showCleanupDialog), keyEquivalent: "")
+        cleanupItem.target = self
+        menu.addItem(cleanupItem)
+
         menu.addItem(NSMenuItem.separator())
+
+        let apiKeyItem = NSMenuItem(title: "配置 API Key...", action: #selector(openAPIKeyConfig), keyEquivalent: "")
+        apiKeyItem.target = self
+        menu.addItem(apiKeyItem)
 
         let openDataItem = NSMenuItem(title: "打开数据文件夹", action: #selector(openDataFolder), keyEquivalent: "")
         openDataItem.target = self
@@ -1070,6 +1078,186 @@ final class MenuBarController: NSObject {
         return csv
     }
 
+    // MARK: - Data Cleanup
+
+    @objc private func showCleanupDialog() {
+        guard let profile = currentProfile, let db = database else {
+            showAlert(title: "错误", message: "请先选择配置文件")
+            return
+        }
+
+        // 获取数据统计
+        let stats: (captureCount: Int, resultCount: Int)
+        do {
+            stats = try db.getDataStats()
+        } catch {
+            showAlert(title: "错误", message: "无法读取数据统计: \(error.localizedDescription)")
+            return
+        }
+
+        if stats.captureCount == 0 && stats.resultCount == 0 {
+            showAlert(title: "提示", message: "没有数据需要清理")
+            return
+        }
+
+        // 创建对话框
+        let alert = NSAlert()
+        alert.messageText = "清理数据"
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "确定")
+        alert.addButton(withTitle: "取消")
+
+        // 创建选项视图
+        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 150))
+
+        // 数据统计标签
+        let statsLabel = NSTextField(labelWithString: "当前数据: \(stats.captureCount) 条采集, \(stats.resultCount) 条 AI 结果")
+        statsLabel.frame = NSRect(x: 0, y: 125, width: 320, height: 20)
+        containerView.addSubview(statsLabel)
+
+        // 归档选项
+        let archiveRadio = NSButton(radioButtonWithTitle: "归档数据", target: nil, action: nil)
+        archiveRadio.frame = NSRect(x: 0, y: 95, width: 320, height: 20)
+        archiveRadio.state = .on
+        containerView.addSubview(archiveRadio)
+
+        let archiveDesc = NSTextField(labelWithString: "(数据保留，不出现在导出中)")
+        archiveDesc.frame = NSRect(x: 20, y: 75, width: 300, height: 16)
+        archiveDesc.textColor = .secondaryLabelColor
+        archiveDesc.font = .systemFont(ofSize: 11)
+        containerView.addSubview(archiveDesc)
+
+        // 清空选项
+        let clearRadio = NSButton(radioButtonWithTitle: "清空数据", target: nil, action: nil)
+        clearRadio.frame = NSRect(x: 0, y: 50, width: 320, height: 20)
+        clearRadio.state = .off
+        containerView.addSubview(clearRadio)
+
+        let clearDesc = NSTextField(labelWithString: "(永久删除所有数据)")
+        clearDesc.frame = NSRect(x: 20, y: 30, width: 300, height: 16)
+        clearDesc.textColor = .secondaryLabelColor
+        clearDesc.font = .systemFont(ofSize: 11)
+        containerView.addSubview(clearDesc)
+
+        // 清空前导出选项
+        let exportCheckbox = NSButton(checkboxWithTitle: "清空前先导出", target: nil, action: nil)
+        exportCheckbox.frame = NSRect(x: 20, y: 5, width: 200, height: 20)
+        exportCheckbox.state = .on
+        exportCheckbox.isEnabled = false
+        containerView.addSubview(exportCheckbox)
+
+        // 设置单选按钮互斥
+        archiveRadio.target = self
+        archiveRadio.action = #selector(cleanupRadioChanged(_:))
+        clearRadio.target = self
+        clearRadio.action = #selector(cleanupRadioChanged(_:))
+
+        objc_setAssociatedObject(archiveRadio, "otherRadio", clearRadio, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(clearRadio, "otherRadio", archiveRadio, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(archiveRadio, "exportCheckbox", exportCheckbox, .OBJC_ASSOCIATION_RETAIN)
+        objc_setAssociatedObject(clearRadio, "exportCheckbox", exportCheckbox, .OBJC_ASSOCIATION_RETAIN)
+
+        alert.accessoryView = containerView
+
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            let isArchive = archiveRadio.state == .on
+            let exportBeforeClear = exportCheckbox.state == .on
+
+            if isArchive {
+                performArchive(profile: profile, db: db)
+            } else {
+                performClear(profile: profile, db: db, exportFirst: exportBeforeClear)
+            }
+        }
+    }
+
+    @objc private func cleanupRadioChanged(_ sender: NSButton) {
+        guard let otherRadio = objc_getAssociatedObject(sender, "otherRadio") as? NSButton,
+              let exportCheckbox = objc_getAssociatedObject(sender, "exportCheckbox") as? NSButton else { return }
+
+        if sender.state == .on {
+            otherRadio.state = .off
+        }
+
+        // 只有选择清空时才启用导出选项
+        let isClearSelected = sender.title == "清空数据" && sender.state == .on ||
+                              otherRadio.title == "清空数据" && otherRadio.state == .on
+        exportCheckbox.isEnabled = isClearSelected
+    }
+
+    private func performArchive(profile: Profile, db: Database) {
+        Task {
+            do {
+                let (archivedCaptures, archivedResults) = try await db.archiveAllData()
+                print("[Gazein] ✓ 已归档 \(archivedCaptures) 条采集, \(archivedResults) 条 AI 结果")
+                showAlert(title: "归档完成", message: "已归档 \(archivedCaptures) 条采集, \(archivedResults) 条 AI 结果\n\n归档数据不会出现在导出中，但保留在数据库可恢复。")
+            } catch {
+                print("[Gazein] 归档失败: \(error)")
+                showAlert(title: "归档失败", message: error.localizedDescription)
+            }
+        }
+    }
+
+    private func performClear(profile: Profile, db: Database, exportFirst: Bool) {
+        Task {
+            do {
+                // 如果需要先导出
+                if exportFirst {
+                    let exportsDir = exportsDirectory(for: profile)
+                    let timestamp = formatFileDateTime(Date())
+
+                    // 导出 OCR 结果
+                    let captures = try await db.fetchAllCaptures()
+                    if !captures.isEmpty {
+                        let ocrFilename = "\(profile.profileName)_ocr_\(timestamp).csv"
+                        let ocrPath = (exportsDir as NSString).appendingPathComponent(ocrFilename)
+
+                        var ocrCsv = "序号,时间,OCR文本,截图路径\n"
+                        for capture in captures {
+                            let row = [
+                                String(capture.seq),
+                                formatDateTime(capture.capturedAt),
+                                escapeCSV(capture.rawOCR ?? ""),
+                                escapeCSV(capture.screenshot ?? "")
+                            ].joined(separator: ",")
+                            ocrCsv += row + "\n"
+                        }
+                        try ocrCsv.write(toFile: ocrPath, atomically: true, encoding: .utf8)
+                        print("[Gazein] ✓ OCR 导出: \(ocrPath)")
+                    }
+
+                    // 导出 AI 结果
+                    let results = try await db.fetchResultsWithCaptureTime()
+                    if !results.isEmpty {
+                        let aiFilename = "\(profile.profileName)_ai_\(timestamp).csv"
+                        let aiPath = (exportsDir as NSString).appendingPathComponent(aiFilename)
+
+                        let hasRawJson = results.contains { $0.rawJson != nil && !$0.rawJson!.isEmpty }
+                        let aiCsv = hasRawJson ? exportRichCSV(results: results) : exportSimpleCSV(results: results)
+                        try aiCsv.write(toFile: aiPath, atomically: true, encoding: .utf8)
+                        print("[Gazein] ✓ AI 导出: \(aiPath)")
+                    }
+                }
+
+                // 清空数据
+                try await db.clearAllData()
+
+                var message = "已清空所有数据"
+                if exportFirst {
+                    message += "\n\n数据已导出到:\n~/Gazein/\(profile.profileName)/exports/"
+                }
+
+                print("[Gazein] ✓ 已清空所有数据")
+                showAlert(title: "清空完成", message: message)
+
+            } catch {
+                print("[Gazein] 清空失败: \(error)")
+                showAlert(title: "清空失败", message: error.localizedDescription)
+            }
+        }
+    }
+
     // MARK: - Folder Actions
 
     @objc private func openDataFolder() {
@@ -1086,6 +1274,31 @@ final class MenuBarController: NSObject {
         let path = NSString(string: "~/.gazein/profiles").expandingTildeInPath
         try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
         NSWorkspace.shared.open(URL(fileURLWithPath: path))
+    }
+
+    @objc private func openAPIKeyConfig() {
+        let secretsPath = NSString(string: "~/.gazein/secrets.json").expandingTildeInPath
+        let fm = FileManager.default
+
+        // 确保目录存在
+        let dir = (secretsPath as NSString).deletingLastPathComponent
+        try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
+
+        // 如果文件不存在，创建模板
+        if !fm.fileExists(atPath: secretsPath) {
+            let template = """
+            {
+              "DEEPSEEK_API_KEY": "",
+              "MOONSHOT_API_KEY": "",
+              "OPENAI_API_KEY": ""
+            }
+            """
+            try? template.write(toFile: secretsPath, atomically: true, encoding: .utf8)
+            print("[Gazein] 已创建 API Key 配置模板: \(secretsPath)")
+        }
+
+        // 用默认编辑器打开
+        NSWorkspace.shared.open(URL(fileURLWithPath: secretsPath))
     }
 
     // MARK: - Helpers
